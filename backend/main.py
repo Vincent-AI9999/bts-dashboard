@@ -1,13 +1,11 @@
 """
-main.py – Cloud Version
-Đọc/ghi Excel từ OneDrive qua Microsoft Graph API
+main.py – Cloud Version dùng GitHub làm data store
 """
-import io, math, os, socket, traceback, threading
+import io, json, math, os, base64, traceback, threading
 from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import msal
 import requests as http_requests
 import pandas as pd
 import uvicorn
@@ -17,134 +15,90 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# ── Cấu hình (đọc từ biến môi trường – đặt trên Render.com) ──
-TENANT_ID     = os.environ["TENANT_ID"]
-CLIENT_ID     = os.environ["CLIENT_ID"]
-CLIENT_SECRET = os.environ["CLIENT_SECRET"]
-USER_EMAIL    = os.environ["USER_EMAIL"]
-ONEDRIVE_PATH = os.environ.get("ONEDRIVE_PATH", "D_Data/Thông tin thanh toán tram/Trạm BTS_04_2026v2.xlsx")
+# ── Cấu hình ──────────────────────────────────────────────
+GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+GITHUB_REPO  = os.environ.get("GITHUB_REPO", "Vincent-AI9999/bts-data")
+GITHUB_FILE  = os.environ.get("GITHUB_FILE", "data.json")
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
-# ── Microsoft Graph ───────────────────────────────────────
-def get_token():
-    app = msal.ConfidentialClientApplication(
-        CLIENT_ID,
-        authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-        client_credential=CLIENT_SECRET,
-    )
-    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
-    if "access_token" not in result:
-        raise RuntimeError(f"Azure auth error: {result.get('error_description','unknown')}")
-    return result["access_token"]
+GH_HEADERS = {
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github.v3+json"
+}
 
-def graph_url(path: str) -> str:
-    return f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/drive/root:/{path}"
-
-def download_excel() -> bytes:
-    token = get_token()
-    resp = http_requests.get(graph_url(ONEDRIVE_PATH) + ":/content",
-                             headers={"Authorization": f"Bearer {token}"}, timeout=30)
+# ── GitHub API ─────────────────────────────────────────────
+def gh_get_file():
+    """Tải JSON từ GitHub."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+    resp = http_requests.get(url, headers=GH_HEADERS, timeout=15)
     resp.raise_for_status()
-    return resp.content
+    info = resp.json()
+    content = base64.b64decode(info["content"]).decode("utf-8")
+    return json.loads(content), info["sha"]
 
-def upload_excel(data: bytes):
-    token = get_token()
-    resp = http_requests.put(graph_url(ONEDRIVE_PATH) + ":/content",
-                             headers={"Authorization": f"Bearer {token}",
-                                      "Content-Type": "application/octet-stream"},
-                             data=data, timeout=60)
+def gh_put_file(data: dict, sha: str, msg: str = "Update via Dashboard"):
+    """Ghi JSON lên GitHub."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+    content = base64.b64encode(json.dumps(data, ensure_ascii=False, indent=2).encode()).decode()
+    resp = http_requests.put(url, headers=GH_HEADERS, timeout=30, json={
+        "message": msg, "content": content, "sha": sha
+    })
     resp.raise_for_status()
+    return resp.json()["content"]["sha"]
 
-# ── Cache ─────────────────────────────────────────────────
-_cache = {"data": None, "etag": None}
-
-def _safe(v):
-    if v is None: return None
-    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): return None
-    try:
-        import pandas as _pd
-        if isinstance(v, _pd.Timestamp): return None if _pd.isna(v) else v.strftime('%Y-%m-%d')
-        if v is _pd.NaT: return None
-    except: pass
-    return v
-
-def _clean(df):
-    return [{k: _safe(v) for k, v in zip(df.columns, row)} for row in df.itertuples(index=False)]
+# ── Cache ──────────────────────────────────────────────────
+_cache = {"data": None, "sha": None}
 
 def _load(force=False):
     global _cache
-    # Lấy ETag để kiểm tra file có thay đổi không
     try:
-        token = get_token()
-        meta = http_requests.get(graph_url(ONEDRIVE_PATH),
-                                 headers={"Authorization": f"Bearer {token}"}, timeout=10).json()
-        etag = meta.get("eTag", "")
-        if not force and _cache["data"] and _cache["etag"] == etag:
+        data, sha = gh_get_file()
+        # Dùng cache nếu SHA không đổi
+        if not force and _cache["sha"] == sha and _cache["data"]:
             return _cache["data"]
-    except:
-        etag = None
-        if not force and _cache["data"]:
-            return _cache["data"]
+        _cache["data"] = data
+        _cache["sha"] = sha
+        return data
+    except Exception as e:
+        if _cache["data"]:
+            return _cache["data"]  # Trả cache cũ nếu GitHub lỗi tạm thời
+        raise
 
-    raw = download_excel()
-    df_th = pd.read_excel(io.BytesIO(raw), sheet_name="2_Danh_Muc_Tram_Tong_Hop")
-    df_dt = pd.read_excel(io.BytesIO(raw), sheet_name="3_Quan_Ly_Doanh_Thu_Nha_Mang")
-    data = {
-        "tong_hop": _clean(df_th),
-        "doanh_thu": _clean(df_dt),
-        "last_updated": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-    }
-    _cache.update({"data": data, "etag": etag})
-    return data
-
-# ── Lifespan ──────────────────────────────────────────────
+# ── Lifespan ───────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app):
     def _preload():
         try:
             _load()
-            print("[INFO] Preload OneDrive OK")
+            print("[INFO] Preload GitHub data OK")
         except Exception as e:
             print(f"[WARN] Preload failed: {e}")
     threading.Thread(target=_preload, daemon=True).start()
     yield
 
-# ── App ───────────────────────────────────────────────────
-app = FastAPI(title="BTS Rent Dashboard – Cloud", lifespan=lifespan)
+# ── App ────────────────────────────────────────────────────
+app = FastAPI(title="BTS Dashboard – Cloud", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 class RentUpdate(BaseModel):
     ma_tram: str; nha_mang: str; column: str; value: str
 
-# ══════════════════════════════════════════════════════════
-# API ROUTES – phải đứng TRƯỚC route wildcard /{filename}
-# ══════════════════════════════════════════════════════════
+# ══ API ROUTES (trước wildcard) ════════════════════════════
 
 @app.get("/api/debug")
 async def debug():
-    results = {}
     try:
-        token = get_token()
-        results["azure_auth"] = "OK"
+        data, sha = gh_get_file()
+        return {
+            "status": "OK",
+            "sha": sha[:8],
+            "tong_hop": len(data.get("tong_hop", [])),
+            "doanh_thu": len(data.get("doanh_thu", [])),
+            "last_updated": data.get("last_updated"),
+        }
     except Exception as e:
-        results["azure_auth"] = f"FAIL: {e}"
-        return results
-    try:
-        meta = http_requests.get(graph_url(ONEDRIVE_PATH),
-                                 headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if meta.status_code == 200:
-            m = meta.json()
-            results["onedrive_file"] = f"OK – {m.get('name')} ({m.get('size',0)//1024}KB)"
-        else:
-            results["onedrive_file"] = f"FAIL {meta.status_code}: {meta.text[:300]}"
-    except Exception as e:
-        results["onedrive_file"] = f"ERROR: {e}"
-    results["config"] = {
-        "user_email": USER_EMAIL,
-        "onedrive_path": ONEDRIVE_PATH,
-    }
-    return results
+        return {"status": "ERROR", "detail": str(e)}
 
 @app.get("/api/dashboard/rent-data")
 async def get_rent_data():
@@ -159,27 +113,36 @@ async def get_rent_data():
 @app.post("/api/dashboard/update-rent")
 async def update_rent(req: RentUpdate):
     import asyncio
+
     def _do():
         global _cache
-        raw = download_excel()
-        excel_data = pd.read_excel(io.BytesIO(raw), sheet_name=None)
-        df = excel_data["3_Quan_Ly_Doanh_Thu_Nha_Mang"]
-        mask = (df["Mã Trạm Gốc"].astype(str).str.strip() == req.ma_tram.strip()) & \
-               (df["Nhà Mạng"].astype(str).str.strip() == req.nha_mang.strip())
-        if not mask.any():
+        data, sha = gh_get_file()
+        rows = data.get("doanh_thu", [])
+
+        # Tìm dòng cần update
+        found = False
+        for row in rows:
+            if (str(row.get("Mã Trạm Gốc","")).strip() == req.ma_tram.strip() and
+                str(row.get("Nhà Mạng","")).strip() == req.nha_mang.strip()):
+                # Chuẩn hóa giá trị
+                val = req.value.strip()
+                if any(k in req.column for k in ["Đơn Giá","Tiền"]):
+                    try: val = float(val.replace(",","").replace("₫",""))
+                    except: pass
+                if "Trạng Thái" in req.column:
+                    val = {"ĐÃ TT":"Đã TT","CHƯA TT":"Chưa TT","ĐANG XỬ LÝ":"Đang Xử Lý"}.get(val.upper(), val)
+                row[req.column] = val
+                found = True
+                break
+
+        if not found:
             raise ValueError(f"Không tìm thấy {req.ma_tram} – {req.nha_mang}")
-        val = req.value.strip()
-        if any(k in req.column for k in ["Đơn Giá","Tiền"]):
-            try: val = float(val.replace(",","").replace("₫",""))
-            except: pass
-        if "Trạng Thái" in req.column:
-            val = {"ĐÃ TT":"Đã TT","CHƯA TT":"Chưa TT","ĐANG XỬ LÝ":"Đang Xử Lý"}.get(val.upper(), val)
-        df.loc[mask, req.column] = val
-        out = io.BytesIO()
-        with pd.ExcelWriter(out, engine="openpyxl") as w:
-            for s, d in excel_data.items(): d.to_excel(w, sheet_name=s, index=False)
-        upload_excel(out.getvalue())
-        _cache["etag"] = None
+
+        data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        new_sha = gh_put_file(data, sha, f"Update {req.ma_tram} – {req.column}")
+        _cache["sha"] = new_sha
+        _cache["data"] = data
+
     try:
         await asyncio.get_event_loop().run_in_executor(None, _do)
         return {"ok": True}
@@ -189,13 +152,10 @@ async def update_rent(req: RentUpdate):
 
 @app.get("/api/network-info")
 async def network_info():
-    import os
     host = os.environ.get("RENDER_EXTERNAL_URL", "https://bts-dashboard.onrender.com")
     return {"url": host, "type": "cloud", "note": "Cloud – Render.com"}
 
-# ══════════════════════════════════════════════════════════
-# STATIC ROUTES – wildcard CUỐI CÙNG
-# ══════════════════════════════════════════════════════════
+# ══ STATIC (sau wildcard) ══════════════════════════════════
 
 @app.get("/")
 async def root():
