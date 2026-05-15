@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Quản Lý Doanh Thu Trạm BTS</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #222636;
+  --border: #2e3348;
+  --accent: #6c63ff;
+  --accent2: #00d2a0;
+  --danger: #ff5e57;
+  --warn: #ffa94d;
+  --txt: #e8eaf0;
+  --txt2: #8b91a8;
+  --green: #00d2a0;
+  --red: #ff5e57;
+  --radius: 14px;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--txt);
+  min-height: 100vh;
+}
+
+/* ── TOPBAR ─────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar-left { display: flex; align-items: center; gap: 14px; }
+.topbar-logo {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #9c8fff);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem;
+}
+.topbar-title h1 { font-size: 1.1rem; font-weight: 700; color: var(--txt); }
+.topbar-title span { font-size: .8rem; color: var(--txt2); }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.badge-updated { font-size: .78rem; color: var(--txt2); margin-right: 6px; }
+
+/* ── BUTTONS ────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px; border-radius: 9px; border: 1px solid var(--border);
+  font-family: inherit; font-size: .85rem; font-weight: 600;
+  cursor: pointer; transition: all .18s;
+}
+.btn-ghost { background: transparent; color: var(--txt2); }
+.btn-ghost:hover { background: var(--surface2); color: var(--txt); border-color: var(--accent); }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: #5750e8; border-color: #5750e8; }
+.btn-qr { background: transparent; color: var(--accent2); border-color: var(--accent2); }
+.btn-qr:hover { background: rgba(0,210,160,.1); }
+
+/* ── LAYOUT ─────────────────────────────────── */
+.page { padding: 24px 28px; max-width: 1600px; margin: 0 auto; }
+
+/* ── KPI GRID ───────────────────────────────── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: transform .2s, box-shadow .2s;
+}
+.kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.kpi-icon {
+  width: 52px; height: 52px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; flex-shrink: 0;
+}
+.kpi-body .label { font-size: .74rem; color: var(--txt2); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+.kpi-body .value { font-size: 1.55rem; font-weight: 800; margin: 3px 0 2px; line-height: 1; }
+.kpi-body .sub { font-size: .75rem; color: var(--txt2); }
+
+/* ── CHART ROW ──────────────────────────────── */
+.chart-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .chart-grid { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.card-title {
+  font-size: .9rem; font-weight: 700; color: var(--txt);
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.card-title i { color: var(--accent); }
+
+/* ── TABS ───────────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+.tab {
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
+  font-family: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--txt2); transition: all .15s;
+}
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── TABLE ──────────────────────────────────── */
+.table-wrap { overflow-x: auto; border-radius: 10px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+.data-table th {
+  background: var(--surface2); color: var(--txt2);
+  font-weight: 600; padding: 11px 14px;
+  text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 2;
+}
+.data-table td {
+  padding: 10px 14px; border-bottom: 1px solid #1e2132;
+  white-space: nowrap; color: var(--txt);
+}
+.data-table tr:hover td { background: var(--surface2); }
+
+/* ── PILLS ──────────────────────────────────── */
+.pill {
+  display: inline-block; padding: 3px 10px; border-radius: 20px;
+  font-size: .73rem; font-weight: 700; letter-spacing: .3px;
+}
+.pill-green { background: rgba(0,210,160,.15); color: #00d2a0; }
+.pill-red   { background: rgba(255,94,87,.15);  color: #ff6b66; }
+.pill-warn  { background: rgba(255,169,77,.15); color: #ffa94d; }
+.pill-blue  { background: rgba(108,99,255,.15); color: #9994ff; }
+.pill-gray  { background: rgba(139,145,168,.1); color: var(--txt2); }
+
+/* ── INLINE EDIT ────────────────────────────── */
+.sel-status {
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 6px; color: var(--txt); font-family: inherit;
+  font-size: .8rem; padding: 4px 8px; cursor: pointer;
+  outline: none; transition: border-color .15s;
+}
+.sel-status:focus { border-color: var(--accent); }
+.sel-status.green { background: rgba(0,210,160,.12); color: #00d2a0; border-color: #00d2a088; }
+.sel-status.red   { background: rgba(255,94,87,.12);  color: #ff6b66;  border-color: #ff5e5788; }
+.sel-status.warn  { background: rgba(255,169,77,.12); color: #ffa94d;  border-color: #ffa94d88; }
+
+.editable {
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; padding: 3px 6px; border-radius: 6px;
+  transition: background .15s;
+}
+.editable:hover { background: var(--surface2); }
+.editable .edit-icon { color: var(--txt2); font-size: .7rem; opacity: 0; transition: opacity .15s; }
+.editable:hover .edit-icon { opacity: 1; }
+
+input.num-input {
+  background: var(--surface2); border: 1px solid var(--accent);
+  border-radius: 6px; color: var(--txt); font-family: inherit;
+  font-size: .83rem; padding: 4px 8px; width: 120px; outline: none;
+}
+
+/* ── MODAL QR ───────────────────────────────── */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7);
+  display: none; align-items: center; justify-content: center; z-index: 999;
+}
+.modal-bg.open { display: flex; }
+.modal-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 32px; text-align: center;
+  max-width: 380px; width: 92%; position: relative;
+}
+.modal-box h2 { font-size: 1.2rem; margin-bottom: 8px; }
+.modal-box p { font-size: .85rem; color: var(--txt2); margin-bottom: 20px; }
+.modal-close {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none; color: var(--txt2);
+  font-size: 1.4rem; cursor: pointer;
+}
+.modal-close:hover { color: var(--txt); }
+.qr-img { border-radius: 10px; background: #fff; padding: 10px; }
+
+/* ── TOAST ──────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+  background: var(--surface2); border: 1px solid var(--accent2);
+  color: var(--txt); padding: 12px 20px; border-radius: 10px;
+  font-size: .88rem; font-weight: 600;
+  display: none; align-items: center; gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.toast.show { display: flex; }
+.toast.err { border-color: var(--red); }
+.toast i { font-size: 1rem; }
+.toast.show i { color: var(--accent2); }
+.toast.err i { color: var(--red); }
+
+/* ── SCROLLBAR ──────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #3e4560; }
+
+/* ── MOBILE ─────────────────────────────────── */
+@media (max-width: 600px) {
+  .page { padding: 12px 12px; }
+  .topbar { padding: 12px 14px; }
+  .topbar-title h1 { font-size: .95rem; }
+  .kpi-body .value { font-size: 1.25rem; }
+  .badge-updated { display: none; }
+}
+
+/* ── SEARCH BAR ─────────────────────── */
+.search-bar {
+  display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center;
+}
+.search-input {
+  flex: 1; min-width: 180px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 9px; color: var(--txt); font-family: inherit;
+  font-size: .88rem; padding: 9px 14px 9px 38px;
+  outline: none; transition: border-color .15s;
+}
+.search-input:focus { border-color: var(--accent); }
+.search-wrap { position: relative; flex: 1; min-width: 180px; }
+.search-wrap i {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--txt2); font-size: .85rem; pointer-events: none;
+}
+.filter-select {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 9px; color: var(--txt); font-family: inherit;
+  font-size: .85rem; padding: 9px 12px; outline: none; cursor: pointer;
+  transition: border-color .15s;
+}
+.filter-select:focus { border-color: var(--accent); }
+.search-count {
+  font-size: .8rem; color: var(--txt2); white-space: nowrap;
+  display: flex; align-items: center; gap: 5px;
+}
+.hl { background: rgba(108,99,255,.3); border-radius: 3px; padding: 0 2px; }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo"><i class="fa-solid fa-tower-cell"></i></div>
+    <div class="topbar-title">
+      <h1>Quản Lý Doanh Thu Trạm BTS</h1>
+      <span id="lbl-updated">Đang tải dữ liệu...</span>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-qr" onclick="openQR()"><i class="fa-solid fa-qrcode"></i> Mobile</button>
+    <button class="btn btn-ghost" onclick="loadData()"><i class="fa-solid fa-arrows-rotate"></i> Làm mới</button>
+  </div>
+</div>
+
+<!-- MAIN PAGE -->
+<div class="page">
+
+  <!-- KPI -->
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <!-- CHARTS -->
+  <div class="chart-grid">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-chart-pie"></i> Nhà Mạng</div>
+      <div style="height:200px;position:relative"><canvas id="cVendor"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-circle-dollar-to-slot"></i> Doanh Thu 2025</div>
+      <div style="height:200px;position:relative"><canvas id="cRevenue"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-bars-progress"></i> Tình Trạng Thanh Toán Theo Kỳ</div>
+      <div style="height:200px;position:relative"><canvas id="cStatus"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TABS + TABLES -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('tab-tt')">
+        <i class="fa-solid fa-file-invoice-dollar"></i> Thanh Toán
+      </button>
+      <button class="tab" onclick="switchTab('tab-tram')">
+        <i class="fa-solid fa-tower-cell"></i> Danh Mục Trạm
+      </button>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="search-bar">
+      <div class="search-wrap">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="search-input" class="search-input"
+          placeholder="Tìm kiếm theo mã trạm, tên, nhà mạng, người phụ trách..."
+          oninput="applySearch()" />
+      </div>
+      <select id="filter-vendor" class="filter-select" onchange="applySearch()">
+        <option value="">Tất cả Nhà Mạng</option>
+        <option value="MOBI">MobiFone</option>
+        <option value="VIETTEL">Viettel</option>
+        <option value="VINA">VinaPhone</option>
+      </select>
+      <select id="filter-status" class="filter-select" onchange="applySearch()">
+        <option value="">Tất cả Trạng Thái K1/26</option>
+        <option value="Đã TT">Đã TT</option>
+        <option value="Chưa TT">Chưa TT</option>
+        <option value="Đang Xử Lý">Đang Xử Lý</option>
+      </select>
+      <div class="search-count" id="search-count"></div>
+    </div>
+
+    <!-- Tab: Thanh Toán -->
+    <div id="tab-tt" class="tab-panel active">
+      <div class="table-wrap" style="max-height:520px;overflow-y:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Mã Trạm</th>
+              <th>Tên Trạm</th>
+              <th>Nhà Mạng</th>
+              <th>% Sở Hữu</th>
+              <th style="text-align:right">Đơn Giá 2025</th>
+              <th style="text-align:center">K1/2025</th>
+              <th style="text-align:center">K2/2025</th>
+              <th style="text-align:center">K3/2025</th>
+              <th style="text-align:center">K4/2025</th>
+              <th style="text-align:right">Đơn Giá 2026</th>
+              <th style="text-align:center">K1/2026</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-tt"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Danh Mục Trạm -->
+    <div id="tab-tram" class="tab-panel">
+      <div class="table-wrap" style="max-height:520px;overflow-y:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Mã Trạm</th>
+              <th>Tên Vị Trí</th>
+              <th>Tỉnh</th>
+              <th>Người Quản Lý</th>
+              <th>Mã Mobi</th>
+              <th>Mã Viettel</th>
+              <th>Mã Vina</th>
+              <th style="text-align:right">Tổng Đầu Tư</th>
+              <th style="text-align:right">Thuê Đất/Năm</th>
+              <th>Trạng Thái Phí</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-tram"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL QR -->
+<div class="modal-bg" id="qr-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeQR()">&times;</button>
+    <h2>📱 Truy cập Mobile</h2>
+    <p>Đảm bảo điện thoại kết nối cùng WiFi với máy tính, rồi quét mã QR:</p>
+    <div id="qr-wrap"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;color:var(--accent);margin:40px 0;display:block"></i></div>
+    <p id="qr-url" style="font-size:.85rem;color:var(--accent2);margin-top:10px;word-break:break-all;font-weight:600"></p>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"><i class="fa-solid fa-check-circle"></i> <span id="toast-msg"></span></div>
+
+<script src="app.js"></script>
+</body>
+</html>

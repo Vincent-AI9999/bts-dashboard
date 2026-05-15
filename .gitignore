@@ -1,0 +1,7 @@
+# BTS Dashboard Cloud
+__pycache__/
+*.py[cod]
+*.pyc
+.env
+.env.*
+*.log
