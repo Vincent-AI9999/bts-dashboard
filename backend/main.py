@@ -195,6 +195,36 @@ async def update_rent(req: RentUpdate):
         traceback.print_exc()
         raise HTTPException(500, str(e))
 
+@app.get("/api/debug")
+async def debug():
+    """Endpoint kiểm tra kết nối Azure và OneDrive."""
+    results = {}
+    try:
+        token = get_token()
+        results["azure_auth"] = "OK"
+    except Exception as e:
+        results["azure_auth"] = f"FAIL: {e}"
+        return results
+
+    try:
+        url = graph_url(ONEDRIVE_PATH)
+        resp = http_requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code == 200:
+            meta = resp.json()
+            results["onedrive_file"] = f"OK – {meta.get('name')} ({meta.get('size', 0)//1024}KB)"
+        else:
+            results["onedrive_file"] = f"FAIL {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        results["onedrive_file"] = f"ERROR: {e}"
+
+    results["config"] = {
+        "tenant_id": TENANT_ID[:8] + "...",
+        "client_id": CLIENT_ID[:8] + "...",
+        "user_email": USER_EMAIL,
+        "onedrive_path": ONEDRIVE_PATH,
+    }
+    return results
+
 @app.get("/api/network-info")
 async def network_info():
     return {"url": "https://bts-dashboard.onrender.com", "type": "cloud", "note": "Cloud server"}
